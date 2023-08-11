@@ -135,11 +135,24 @@ class ProfilePanel(BoxSizerPanel):
                     traceback.print_exc()
 
 
+DISCLAIMER = """建议使用小号
+如因在录播姬中使用自己的账号，导致账号现在或未来被站点限制、
+风控等一切后果由用户自行承担，软件开发者不承担任何责任
+Using a sub-account is highly recommended.
+User shall be responsible for all consequences
+of using their account in recorder(s),
+including by not limited to, being posed restriction by website.
+Developer shall not be liable for any damages or liabilities."""
+
+
 class MainFrame(wx.Frame):
     def __init__(self):
         super().__init__(parent=None, title='浏览器cookies提取器')
         self.panel = panel = wx.Panel(self)
         self.main_sizer = v_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        warning_label = wx.StaticText(self.panel, label=DISCLAIMER)
+        v_sizer.Add(warning_label, 0, wx.ALL | wx.ALIGN_LEFT, 10)
 
         self.fetch_btn = wx.Button(panel, label='读取硬盘以获取浏览器cookies')
         self.fetch_btn.Bind(wx.EVT_BUTTON, self._load_cookies)
