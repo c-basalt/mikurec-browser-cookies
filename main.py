@@ -68,6 +68,11 @@ class ProfilePanel(BoxSizerPanel):
         self.info_text.SetLabelText('')
         self.clear_widgets(wx.TextCtrl, refresh=refresh)
 
+    def set_info_text(self, text, refresh=True):
+        self.info_text.SetLabelText(text)
+        if refresh:
+            self.refresh()
+
     def _on_select_copy(self, event):
         for profile in self.GetParent().GetChildren():
             profile.clear_text()
@@ -75,9 +80,9 @@ class ProfilePanel(BoxSizerPanel):
         if wx.TheClipboard.Open():
             wx.TheClipboard.SetData(wx.TextDataObject(self.cookie_str))
             wx.TheClipboard.Close()
-            self.info_text.SetLabelText('已复制cookies到剪贴板')
+            self.set_info_text('已复制cookies到剪贴板', refresh=False)
         else:
-            self.info_text.SetLabelText('无法访问剪贴板，请手动复制cookies')
+            self.set_info_text('无法访问剪贴板，请手动复制cookies', refresh=False)
             text = wx.TextCtrl(self, value=self.cookie_str, style=wx.TE_READONLY | wx.TE_MULTILINE, size=(-1, -1))
             self.add_to_panel(text, refresh=False)
 
@@ -89,7 +94,7 @@ class ProfilePanel(BoxSizerPanel):
         try:
             path, proc = get_path_and_proc()
         except Exception:
-            self.info_text.SetLabelText('录播姬检测失败')
+            self.set_info_text('录播姬检测失败')
             MessageDialogCN.msg_box(
                 None, f'录播姬检测失败：\n{traceback.format_exc()}', caption='错误', style=wx.ICON_ERROR)
             traceback.print_exc()
@@ -99,13 +104,13 @@ class ProfilePanel(BoxSizerPanel):
                 None, '未找到录播姬，需手动提供工作目录（录播姬启动时选择的文件夹）',
                 caption='未找到录播姬', style=wx.OK | wx.CANCEL
             ) == wx.ID_CANCEL:
-                self.info_text.SetLabelText('未找到录播姬')
+                self.set_info_text('未找到录播姬')
                 return
             with wx.FileDialog(
                 None, "打开工作目录", wildcard="工作目录配置文件|config.json", style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
             ) as fileDialog:
                 if fileDialog.ShowModal() == wx.ID_CANCEL:
-                    self.info_text.SetLabelText('未找到录播姬')
+                    self.set_info_text('未找到录播姬')
                     return
                 path = fileDialog.GetPath()
         while True:
@@ -114,14 +119,14 @@ class ProfilePanel(BoxSizerPanel):
             if not proc or not proc.is_running():
                 break
         try:
-            set_cookies(path, self.cookie_str)
+            backup_fn = set_cookies(path, self.cookie_str)
+            self.set_info_text(f'cookies设置完成, 旧配置已备份至 {backup_fn}')
         except Exception:
-            self.info_text.SetLabelText('cookies设置失败')
+            self.set_info_text('cookies设置失败')
             MessageDialogCN.msg_box(
                 None, f'cookies设置失败：\n{traceback.format_exc()}', caption='错误', style=wx.ICON_ERROR)
             traceback.print_exc()
             return
-        self.info_text.SetLabelText('cookies设置完成')
         if not proc:
             MessageDialogCN.msg_box(None, '设置完成，请启动录播姬，进入高级设置检查cookies是否生效', caption='cookies设置完成')
         else:
@@ -130,19 +135,21 @@ class ProfilePanel(BoxSizerPanel):
                 caption='cookies设置完成', style=wx.OK | wx.CANCEL
             ) == wx.ID_OK:
                 try:
-                    subprocess.Popen([proc.exe()],
+                    subprocess.Popen(["start", proc.exe()], shell=True,
                                      creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
                 except Exception:
+                    MessageDialogCN.msg_box(
+                        None, f'启动失败，请手动启动录播姬：\n{traceback.format_exc()}', caption='错误', style=wx.ICON_ERROR)
                     traceback.print_exc()
 
 
 DISCLAIMER = """建议使用小号
 如因在录播姬中使用自己的账号，导致账号现在或未来被站点限制、
 风控等一切后果由用户自行承担，软件开发者不承担任何责任
-Using a sub-account is highly recommended.
+Using a sub-account is recommended.
 User shall be responsible for all consequences
-of using their account in recorder(s),
-including by not limited to, being posed restriction by website.
+of using their own account in recorder(s),
+including by not limited to, being posed restrictions by website.
 Developer shall not be liable for any damages or liabilities."""
 
 

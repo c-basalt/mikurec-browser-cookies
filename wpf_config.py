@@ -62,9 +62,11 @@ def set_cookies(json_fn, cookie_str):
             "Value": cookie_str,
         }
     }
-    os.rename(json_fn, f'{os.path.splitext(json_fn)[0]}-{time.strftime("%y%m%d-%H%M%S")}.json')
+    backup_fn = f'{os.path.splitext(json_fn)[0]}-{time.strftime("%y%m%d-%H%M%S")}.json'
+    os.rename(json_fn, backup_fn)
     with open(json_fn, 'wt', encoding='utf-8') as f:
         json.dump(data, f)
+    return backup_fn
 
 
 if __name__ == '__main__':
