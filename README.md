@@ -18,7 +18,7 @@
 
 ```bash
 python -m pip install -r requirements.txt
-python main.py
+python main.pyw
 ```
 
 ## 手动提取cookies用于mikufans录播姬

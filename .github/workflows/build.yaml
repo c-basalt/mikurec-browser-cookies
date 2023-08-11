@@ -25,7 +25,7 @@ jobs:
       shell: cmd
     - name: build-bundle
       run: |
-        pyinstaller --onefile main.py
+        pyinstaller --onefile main.pyw
         move dist\main.exe mikurec-browser-cookies.exe
       shell: cmd
     - uses: actions/upload-artifact@v3
