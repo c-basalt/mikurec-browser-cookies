@@ -1,9 +1,138 @@
+import subprocess
 import traceback
 
 import wx
-import wx.grid
 
 from extractor import auto_extract_cookies
+from wpf_config import get_path_and_proc, set_cookies
+
+
+class BoxSizerPanel(wx.Panel):
+    def __init__(self, *args, resize_callback=None, border=10, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.panel_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.resize_callback = resize_callback or getattr(self.GetParent(), 'refresh', None)
+        self.border = border
+
+    def add_to_panel(self, widget, refresh=True):
+        self.panel_sizer.Add(widget, 0, wx.ALL | wx.ALIGN_LEFT, self.border)
+        if refresh:
+            self.refresh()
+
+    def clear_widgets(self, remove_type=None, refresh=True):
+        for child in self.GetChildren():
+            if remove_type is None or isinstance(child, remove_type):
+                child.Destroy()
+        if refresh:
+            self.refresh()
+
+    def refresh(self, propagate=True):
+        self.panel_sizer.Layout()
+        self.SetSizerAndFit(self.panel_sizer)
+        if self.resize_callback and propagate:
+            self.resize_callback()
+
+
+class MessageDialogCN(wx.MessageDialog):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.SetOKCancelLabels('确定', '取消')
+
+    @classmethod
+    def msg_box(cls, *args, **kwargs):
+        with cls(*args, **kwargs) as dialog:
+            return dialog.ShowModal()
+
+
+class ProfilePanel(BoxSizerPanel):
+    def __init__(self, uid, uname, cookie_str, *args, **kwargs):
+        super().__init__(*args, border=3, **kwargs)
+        self.cookie_str = cookie_str
+
+        self.profile_label = wx.StaticText(self, label=f'{uname} ({uid})')
+        self.add_to_panel(self.profile_label)
+
+        clipboard_btn = wx.Button(self, label='复制cookies到剪贴板')
+        clipboard_btn.Bind(wx.EVT_BUTTON, self._on_select_copy)
+        self.add_to_panel(clipboard_btn, refresh=False)
+
+        send_btn = wx.Button(self, label='自动添加cookies到录播姬（需重启录播姬）')
+        send_btn.Bind(wx.EVT_BUTTON, self._on_select_send)
+        self.add_to_panel(send_btn, refresh=False)
+
+        self.info_text = wx.StaticText(self, label='')
+        self.add_to_panel(self.info_text)
+
+    def clear_text(self, refresh=True):
+        self.info_text.SetLabelText('')
+        self.clear_widgets(wx.TextCtrl, refresh=refresh)
+
+    def _on_select_copy(self, event):
+        for profile in self.GetParent().GetChildren():
+            profile.clear_text()
+
+        if wx.TheClipboard.Open():
+            wx.TheClipboard.SetData(wx.TextDataObject(self.cookie_str))
+            wx.TheClipboard.Close()
+            self.info_text.SetLabelText('已复制cookies到剪贴板')
+        else:
+            self.info_text.SetLabelText('无法访问剪贴板，请手动复制cookies')
+            text = wx.TextCtrl(self, value=self.cookie_str, style=wx.TE_READONLY | wx.TE_MULTILINE, size=(-1, -1))
+            self.add_to_panel(text, refresh=False)
+
+        self.refresh()
+
+    def _on_select_send(self, event):
+        for profile in self.GetParent().GetChildren():
+            profile.clear_text()
+        try:
+            path, proc = get_path_and_proc()
+        except Exception:
+            self.info_text.SetLabelText('录播姬检测失败')
+            MessageDialogCN.msg_box(
+                None, f'录播姬检测失败：\n{traceback.format_exc()}', caption='错误', style=wx.ICON_ERROR)
+            traceback.print_exc()
+            return
+        if not path:
+            if MessageDialogCN.msg_box(
+                None, '未找到录播姬，需手动提供工作目录（录播姬启动时选择的文件夹）',
+                caption='未找到录播姬', style=wx.OK | wx.CANCEL
+            ) == wx.ID_CANCEL:
+                self.info_text.SetLabelText('未找到录播姬')
+                return
+            with wx.FileDialog(
+                None, "打开工作目录", wildcard="工作目录配置文件|config.json", style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+            ) as fileDialog:
+                if fileDialog.ShowModal() == wx.ID_CANCEL:
+                    self.info_text.SetLabelText('未找到录播姬')
+                    return
+                path = fileDialog.GetPath()
+        while True:
+            MessageDialogCN.msg_box(None, '自动添加cookies需WPF版录播姬退出后才能有效，请确保退出录播姬后继续',
+                                    caption='请确认录播姬已退出')
+            if not proc or not proc.is_running():
+                break
+        try:
+            set_cookies(path, self.cookie_str)
+        except Exception:
+            self.info_text.SetLabelText('cookies设置失败')
+            MessageDialogCN.msg_box(
+                None, f'cookies设置失败：\n{traceback.format_exc()}', caption='错误', style=wx.ICON_ERROR)
+            traceback.print_exc()
+            return
+        self.info_text.SetLabelText('cookies设置完成')
+        if not proc:
+            MessageDialogCN.msg_box(None, '设置完成，请启动录播姬，进入高级设置检查cookies是否生效', caption='cookies设置完成')
+        else:
+            if MessageDialogCN.msg_box(
+                None, '设置完成，请启动录播姬，进入高级设置检查cookies是否生效。点击确定启动录播姬',
+                caption='cookies设置完成', style=wx.OK | wx.CANCEL
+            ) == wx.ID_OK:
+                try:
+                    subprocess.Popen([proc.exe()],
+                                     creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+                except Exception:
+                    traceback.print_exc()
 
 
 class MainFrame(wx.Frame):
@@ -19,11 +148,8 @@ class MainFrame(wx.Frame):
         line = wx.StaticLine(panel)
         v_sizer.Add(line)
 
-        self.profile_panel = wx.Panel(panel)
-        self.profile_panel.SetAutoLayout(True)
-        self.profile_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.profile_panel.SetSizerAndFit(self.profile_sizer)
-        v_sizer.Add(self.profile_panel, 0, wx.ALL | wx.ALIGN_LEFT, 10)
+        self.profiles_panel = BoxSizerPanel(panel, resize_callback=self._resize_window)
+        v_sizer.Add(self.profiles_panel, 0, wx.ALL | wx.ALIGN_LEFT, 10)
 
         panel.SetSizerAndFit(v_sizer)
         self._resize_window()
@@ -31,45 +157,23 @@ class MainFrame(wx.Frame):
 
     def _resize_window(self):
         x, y = self.main_sizer.ComputeFittingWindowSize(self)
-        self.SetSize((x+100, y+100))
-
-    def _get_profile_handler(self, cookie_str):
-        def _handler(event):
-            for child in self.profile_panel.GetChildren():
-                if isinstance(child, wx.TextCtrl):
-                    child.Destroy()
-                    self.profile_sizer.Layout()
-                    self._resize_window()
-            if wx.TheClipboard.Open():
-                wx.TheClipboard.SetData(wx.TextDataObject(cookie_str))
-                wx.TheClipboard.Close()
-                dialog = wx.MessageDialog(None, '已复制cookies到剪贴板')
-            else:
-                dialog = wx.MessageDialog(None, '无法访问剪贴板，请手动复制cookies')
-                text = wx.TextCtrl(
-                    self.profile_panel, value=cookie_str,
-                    style=wx.TE_READONLY | wx.TE_MULTILINE, size=(-1, -1))
-                self._add_to_profile_panel(text)
-            dialog.ShowModal()
-        return _handler
-
-    def _add_to_profile_panel(self, widget):
-        self.profile_sizer.Add(widget, 0, wx.ALL | wx.ALIGN_LEFT, 10)
-        self.profile_sizer.Layout()
-        self.profile_panel.SetSizerAndFit(self.profile_sizer)
-        self._resize_window()
+        self.SetSize((x+60, y+40))
 
     def _load_cookies(self, event):
         try:
-            for child in self.profile_panel.GetChildren():
-                child.Destroy()
-            for uid, (uname, cookie_str) in auto_extract_cookies().items():
-                profile_btn = wx.Button(self.profile_panel, label=f'{uname} ({uid})')
-                profile_btn.Bind(wx.EVT_BUTTON, self._get_profile_handler(cookie_str))
-                self._add_to_profile_panel(profile_btn)
+            cookies = auto_extract_cookies()
+            if not cookies:
+                MessageDialogCN.msg_box(
+                    None, '读取cookies失败，未从常见浏览器找到B站cookies', caption='读取失败', style=wx.ICON_ERROR)
+                return
+            self.profiles_panel.clear_widgets(refresh=False)
+            for uid, (uname, cookie_str) in cookies.items():
+                profile = ProfilePanel(uid, uname, cookie_str, self.profiles_panel)
+                self.profiles_panel.add_to_panel(profile, refresh=False)
+            self.profiles_panel.refresh()
         except Exception:
-            alert = wx.MessageDialog(None, f'读取cookies失败：\n{traceback.format_exc()}', caption='错误')
-            alert.ShowModal()
+            MessageDialogCN.msg_box(
+                None, f'读取cookies失败：\n{traceback.format_exc()}', caption='错误', style=wx.ICON_ERROR)
             traceback.print_exc()
 
 
