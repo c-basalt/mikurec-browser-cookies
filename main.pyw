@@ -172,6 +172,8 @@ class MainFrame(wx.Frame):
         self.profiles_panel = BoxSizerPanel(panel, resize_callback=self._resize_window)
         v_sizer.Add(self.profiles_panel, 0, wx.ALL | wx.ALIGN_LEFT, 10)
 
+        self.add_profile_label('较新chromium内核的浏览器的cookies无法在浏览器打开时读取\n需关闭浏览器或改用手工提取')
+
         panel.SetSizerAndFit(v_sizer)
         self._resize_window()
         self.Show()
@@ -180,14 +182,24 @@ class MainFrame(wx.Frame):
         x, y = self.main_sizer.ComputeFittingWindowSize(self)
         self.SetSize((x+60, y+40))
 
+    def add_profile_label(self, text):
+        label = wx.StaticText(self.profiles_panel, label=text)
+        self.profiles_panel.add_to_panel(label)
+
     def _load_cookies(self, event):
         try:
-            cookies = auto_extract_cookies()
-            if not cookies:
+            errors, cookies = auto_extract_cookies()
+            for error_trace_msg in errors['misc']:
                 MessageDialogCN.msg_box(
-                    None, '读取cookies失败，未从常见浏览器找到B站cookies', caption='读取失败', style=wx.ICON_ERROR)
-                return
+                    None, f'读取cookies时出现以下错误：\n{error_trace_msg}', caption='错误', style=wx.ICON_ERROR)
             self.profiles_panel.clear_widgets(refresh=False)
+            if not cookies:
+                self.add_profile_label('读取cookies失败，未从常见浏览器找到B站cookies')
+            if 'chrome read permission error' in errors['known']:
+                args = '\n    '.join(errors['known']['chrome read permission error'])
+                self.add_profile_label(f'chromium内核浏览器打开时会占用cookies文件，无法读取以下的浏览器的cookies：\n    {args}')
+                if 'edge' in errors['known']['chrome read permission error']:
+                    self.add_profile_label('Edge关闭后会驻留后台\n启动CMD输入 taskkill /F /IM msedge.exe 并回车可结束所有后台Edge进程')
             for uid, (uname, cookie_str) in cookies.items():
                 profile = ProfilePanel(uid, uname, cookie_str, self.profiles_panel)
                 self.profiles_panel.add_to_panel(profile, refresh=False)
